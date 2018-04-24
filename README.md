@@ -12,10 +12,8 @@ with -lm).
     gcc -O3 -o basic_nn basic_nn.c -lm
 
 Enter 0 to get the menu of commands. You need to have a file named 
-"semeion.data" in the run directory or basic_nn will exit. To download the
-dataset:
-
-    wget http://archive.ics.uci.edu/ml/machine-learning-databases/semeion/semeion.data
+"semeion.data" in the run directory or basic_nn will exit with an error. I have
+included a stripped version of the dataset in the repository (850k).
 
 Once basic_nn is at the prompt, the neural net is initialized (with random
 weights) and the training dataset is loaded. You can export each digit in the
