@@ -10,6 +10,13 @@
 #include <string.h>
 #include "cutils.h"
 
+#define TRAINING_SET_SIZE    1195
+#define TRAINING_INPUT_SIZE  256
+#define TRAINING_OUTPUT_SIZE 10
+#define TEST_SET_BEGIN       1196
+#define TEST_SET_SIZE        398
+#define TRAINING_SET_FILE    "semeion.data"
+
 #define random_wt() ((rand() / (float) RAND_MAX) - 0.5f)
 
 typedef float activation_fn(float);
@@ -40,35 +47,39 @@ typedef struct{ // 1-hidden layer NN
 typedef struct{
     farray in;
     farray out;
-} training_pair;
+} data_pair;
 
 typedef struct{
-    training_pair  **pairs;
-    int           n_pairs;
-} training_set;
+    data_pair  **pairs;
+    int          n_pairs;
+} data_pair_array;
+
+typedef struct{
+    data_pair_array *training_set;
+    data_pair_array *test_set;
+} data_set;
 
 
-hid1_nn *construct_nn(int num_inputs, int num_hidden, int num_outputs, activation_fn *s, int init);
-void randomize_wts(hid1_nn *nn);
-void back_propagate(hid1_nn *nn, farray *in, farray *target, float rate);
-void forward_propagate(hid1_nn *nn, farray *in);
+void  back_propagate(hid1_nn *nn, farray *in, farray *target, float rate);
+void  forward_propagate(hid1_nn *nn, farray *in);
 float logistic(float f);
 float delta_logistic(float f);
 float ms_error(float a, float b);
 float delta_error(float a, float b);
-void dev_prompt(void);
-void dev_get_line(char *buffer, FILE *stream);
-void dev_menu(void);
-void show_states(nn_layer *layer);
-void show_weights(nn_layer *layer);
-void introspect_svg(farray *arr, unsigned width, unsigned height, float offset, FILE *stream);
 float sum_error(float *targets, float *outputs, int num_outputs);
+void  show_states(nn_layer *layer);
+void  show_weights(nn_layer *layer);
+hid1_nn *construct_nn(int num_inputs, int num_hidden, int num_outputs, activation_fn *s, int init);
+void  randomize_wts(hid1_nn *nn);
 FILE *open_file(char *filename, char *attr);
 int   file_size(FILE *file);
 char *slurp_file(char *filename);
-training_set *load_semeion_data(void);
-float nn_train(hid1_nn *nn, farray *in, farray *target, float rate);
-void nn_predict(hid1_nn *nn, farray *in, farray *target);
+data_set *load_semeion_data_new(void);
+data_pair_array *load_semeion_data(void);
+void  introspect_svg(farray *arr, unsigned width, unsigned height, float offset, FILE *stream);
+void  dev_prompt(void);
+void  dev_get_line(char *buffer, FILE *stream);
+void  dev_menu(void);
 
 
 //
@@ -326,12 +337,7 @@ char *slurp_file(char *filename){
 
 //
 //
-training_set *load_semeion_data(void){
-
-    #define TRAINING_SET_SIZE    1593
-    #define TRAINING_INPUT_SIZE  256
-    #define TRAINING_OUTPUT_SIZE 10
-    #define TRAINING_SET_FILE    "semeion.data"
+data_set *load_semeion_data_new(void){
 
     char *training_str = slurp_file(TRAINING_SET_FILE);
 
@@ -339,31 +345,29 @@ training_set *load_semeion_data(void){
     int line_count;
     char c;
 
-    training_set *ts = malloc(sizeof(training_set));
-    ts->pairs   = malloc(TRAINING_SET_SIZE * sizeof(training_pair*));
-    ts->n_pairs = TRAINING_SET_SIZE;
-
-    int writes=0;
+    data_pair_array *training_set = malloc(sizeof(data_pair_array));
+    training_set->pairs   = malloc(TRAINING_SET_SIZE * sizeof(data_pair*));
+    training_set->n_pairs = TRAINING_SET_SIZE;
 
     for(i=0; i<TRAINING_SET_SIZE; i++){
-        ts->pairs[i]      = malloc(sizeof(training_pair));
-        ts->pairs[i]->in.f  = malloc(TRAINING_INPUT_SIZE * sizeof(float));
-        ts->pairs[i]->in.n  = TRAINING_INPUT_SIZE;
-        ts->pairs[i]->out.f = malloc(TRAINING_OUTPUT_SIZE * sizeof(float));
-        ts->pairs[i]->out.n = TRAINING_OUTPUT_SIZE;
+        training_set->pairs[i]        = malloc(sizeof(data_pair));
+        training_set->pairs[i]->in.f  = malloc(TRAINING_INPUT_SIZE * sizeof(float));
+        training_set->pairs[i]->in.n  = TRAINING_INPUT_SIZE;
+        training_set->pairs[i]->out.f = malloc(TRAINING_OUTPUT_SIZE * sizeof(float));
+        training_set->pairs[i]->out.n = TRAINING_OUTPUT_SIZE;
 
         c=training_str[j];
         line_count=0;
         while(c != '\0' && c != '\n' && (line_count < 256)){
             if(c=='0' || c=='1'){
-                ts->pairs[i]->in.f[line_count++] = (float)(c-'0');
+                training_set->pairs[i]->in.f[line_count++] = (float)(c-'0');
             }
             c=training_str[++j];
         }
         line_count=0;
         while(c != '\0' && c != '\n' && (line_count < 10)){
             if(c=='0' || c=='1'){
-                ts->pairs[i]->out.f[line_count++] = (float)(c-'0');
+                training_set->pairs[i]->out.f[line_count++] = (float)(c-'0');
             }
             c=training_str[++j];
         }
@@ -372,7 +376,90 @@ training_set *load_semeion_data(void){
         }
     }
 
-    return ts;
+    data_pair_array *test_set = malloc(sizeof(data_pair_array));
+    test_set->pairs   = malloc(TRAINING_SET_SIZE * sizeof(data_pair*));
+    test_set->n_pairs = TRAINING_SET_SIZE;
+
+    for(i=0; i<TEST_SET_SIZE; i++){
+        test_set->pairs[i]        = malloc(sizeof(data_pair));
+        test_set->pairs[i]->in.f  = malloc(TRAINING_INPUT_SIZE * sizeof(float));
+        test_set->pairs[i]->in.n  = TRAINING_INPUT_SIZE;
+        test_set->pairs[i]->out.f = malloc(TRAINING_OUTPUT_SIZE * sizeof(float));
+        test_set->pairs[i]->out.n = TRAINING_OUTPUT_SIZE;
+
+        c=training_str[j];
+        line_count=0;
+        while(c != '\0' && c != '\n' && (line_count < 256)){
+            if(c=='0' || c=='1'){
+                test_set->pairs[i]->in.f[line_count++] = (float)(c-'0');
+            }
+            c=training_str[++j];
+        }
+        line_count=0;
+        while(c != '\0' && c != '\n' && (line_count < 10)){
+            if(c=='0' || c=='1'){
+                test_set->pairs[i]->out.f[line_count++] = (float)(c-'0');
+            }
+            c=training_str[++j];
+        }
+        while(c != '0' && c != '1'){
+            c=training_str[++j];
+        }
+    }
+
+    data_set *ds = malloc(sizeof(data_set));
+    ds->training_set = training_set;
+    ds->test_set = test_set;
+
+    return ds;
+
+}
+
+
+//
+//
+data_pair_array *load_semeion_data(void){
+
+    char *training_str = slurp_file(TRAINING_SET_FILE);
+
+    int i,j=0;
+    int line_count;
+    char c;
+
+    data_pair_array *training_set = malloc(sizeof(data_pair_array));
+    training_set->pairs   = malloc(TRAINING_SET_SIZE * sizeof(data_pair*));
+    training_set->n_pairs = TRAINING_SET_SIZE;
+
+    int writes=0;
+
+    for(i=0; i<TRAINING_SET_SIZE; i++){
+        training_set->pairs[i]        = malloc(sizeof(data_pair));
+        training_set->pairs[i]->in.f  = malloc(TRAINING_INPUT_SIZE * sizeof(float));
+        training_set->pairs[i]->in.n  = TRAINING_INPUT_SIZE;
+        training_set->pairs[i]->out.f = malloc(TRAINING_OUTPUT_SIZE * sizeof(float));
+        training_set->pairs[i]->out.n = TRAINING_OUTPUT_SIZE;
+
+        c=training_str[j];
+        line_count=0;
+        while(c != '\0' && c != '\n' && (line_count < 256)){
+            if(c=='0' || c=='1'){
+                training_set->pairs[i]->in.f[line_count++] = (float)(c-'0');
+            }
+            c=training_str[++j];
+        }
+        line_count=0;
+        while(c != '\0' && c != '\n' && (line_count < 10)){
+            if(c=='0' || c=='1'){
+                training_set->pairs[i]->out.f[line_count++] = (float)(c-'0');
+            }
+            c=training_str[++j];
+        }
+        while(c != '0' && c != '1'){
+            c=training_str[++j];
+        }
+    }
+
+    return training_set;
 
 }
 
@@ -426,7 +513,9 @@ void introspect_svg(farray *arr, unsigned width, unsigned height, float offset, 
 void dev_prompt(void){
 
     hid1_nn *nn = construct_nn(256, 32, 10, logistic, 1);
-    training_set *ts = load_semeion_data();
+//    data_pair_array *ts = load_semeion_data_new();
+    data_set *ds = load_semeion_data_new();
+    data_pair_array *training_set = ds->training_set;
 
     char *cmd_code_str;
     int   cmd_code=0;
@@ -435,15 +524,16 @@ void dev_prompt(void){
     int i,j,k;
     float ftemp;
     float total_error;
+    float error;
     FILE *s;
 
     farray q;
     farray z;
 
-    q.f = ts->pairs[0]->in.f;
+    q.f = training_set->pairs[0]->in.f;
     q.n = 256;
 
-    z.f = ts->pairs[0]->out.f;
+    z.f = training_set->pairs[0]->out.f;
     z.n = 10;
 
     _say("type 0 for menu");
@@ -459,27 +549,35 @@ void dev_prompt(void){
         cmd_code = atoi(cmd_code_str);
 
         switch(cmd_code){
+
             case 0:
                 dev_menu();
                 break;
+
             case 1:
                 _say("cmd_code=1");
                 break;
+
             case 2:
                 _say("exiting");
                 return;
+
             case 31:
                 show_states(&(nn->hidden));
                 break;
+
             case 32:
                 show_weights(&(nn->hidden));
                 break;
+
             case 33:
                 show_states(&(nn->out));
                 break;
+
             case 34:
                 show_weights(&(nn->out));
                 break;
+
             case 41:
                 s = fopen("test.svg", "wb");
                 introspect_svg( &(nn->hidden.states),
@@ -487,6 +585,7 @@ void dev_prompt(void){
                                   1, 0.5, s);
                 fclose(s);
                 break;
+
             case 42:
                 s = fopen("test.svg", "wb");
                 introspect_svg( &(nn->hidden.in_wts.wts),
@@ -495,6 +594,7 @@ void dev_prompt(void){
                                   0.5, s);
                 fclose(s);
                 break;
+
             case 43:
                 s = fopen("test.svg", "wb");
                 introspect_svg( &(nn->out.states),
@@ -502,6 +602,7 @@ void dev_prompt(void){
                                   1, 0.5, s);
                 fclose(s);
                 break;
+
             case 44:
                 s = fopen("test.svg", "wb");
                 introspect_svg( &(nn->out.in_wts.wts),
@@ -510,75 +611,135 @@ void dev_prompt(void){
                                   0.5, s);
                 fclose(s);
                 break;
-            case 5:
+
+            case 51:
                 cmd_code_str = strtok(NULL, " ");
                 if(cmd_code_str == NULL){ _say("no argument given"); continue; }
                 cmd_code = atoi(cmd_code_str);
-                q.f = ts->pairs[cmd_code]->in.f;
+                q.f = training_set->pairs[cmd_code]->in.f;
                 s = fopen("test.svg", "wb");
                 introspect_svg(&q, 16, 16, 0, s);
                 fclose(s);
                 break;
-            case 6:
+
+            case 52:
+                cmd_code_str = strtok(NULL, " ");
+                if(cmd_code_str == NULL){ _say("no argument given"); continue; }
+                cmd_code = atoi(cmd_code_str);
+                q.f = ds->test_set->pairs[cmd_code]->in.f;
+                s = fopen("test.svg", "wb");
+                introspect_svg(&q, 16, 16, 0, s);
+                fclose(s);
+                break;
+
+            case 61:
                 cmd_code_str = strtok(NULL, " ");
                 if(cmd_code_str == NULL){ _say("no argument given"); continue; }
                 cmd_code = atoi(cmd_code_str);
                 for(i=0; i < nn->out.states.n; i++){
-                    printf("%f ", ts->pairs[cmd_code]->out.f[i]);
+                    printf("%f ", training_set->pairs[cmd_code]->out.f[i]);
                 }
                 printf("\n");
                 break;
+
+            case 62:
+                cmd_code_str = strtok(NULL, " ");
+                if(cmd_code_str == NULL){ _say("no argument given"); continue; }
+                cmd_code = atoi(cmd_code_str);
+                for(i=0; i < nn->out.states.n; i++){
+                    printf("%f ", ds->test_set->pairs[cmd_code]->out.f[i]);
+                }
+                printf("\n");
+                break;
+
             case 71:
                 cmd_code_str = strtok(NULL, " ");
                 if(cmd_code_str == NULL){ _say("no argument given"); continue; }
                 cmd_code = atoi(cmd_code_str);
-                q.f = ts->pairs[cmd_code]->in.f;
+                q.f = training_set->pairs[cmd_code]->in.f;
                 forward_propagate(nn,&q);
                 break;
+
             case 72:
                 cmd_code_str = strtok(NULL, " ");
                 if(cmd_code_str == NULL){ _say("no argument given"); continue; }
                 cmd_code = atoi(cmd_code_str);
-                q.f = ts->pairs[cmd_code]->in.f;
-                z.f = ts->pairs[cmd_code]->out.f;
-                back_propagate(nn,&q,&z,1);
+                q.f = ds->test_set->pairs[cmd_code]->in.f;
+                forward_propagate(nn,&q);
                 break;
+
+//            case 72:
+//                cmd_code_str = strtok(NULL, " ");
+//                if(cmd_code_str == NULL){ _say("no argument given"); continue; }
+//                cmd_code = atoi(cmd_code_str);
+//                q.f = training_set->pairs[cmd_code]->in.f;
+//                z.f = training_set->pairs[cmd_code]->out.f;
+//                back_propagate(nn,&q,&z,1);
+//                break;
+
             case 8:
                 cmd_code_str = strtok(NULL, " ");
                 if(cmd_code_str == NULL){ _say("no argument given"); continue; }
                 cmd_code = atoi(cmd_code_str);
                 for(j=0;j<cmd_code;j++){
-                    for(i=0;i<1593;i++){
-                        ftemp=(1592*( (float)rand() / RAND_MAX));
+                    for(i=0;i<TRAINING_SET_SIZE;i++){
+                        ftemp=((TRAINING_SET_SIZE-1)*( (float)rand() / RAND_MAX));
                         k=floor(ftemp);
-                        q.f = ts->pairs[k]->in.f;
-                        z.f = ts->pairs[k]->out.f;
+                        q.f = training_set->pairs[k]->in.f;
+                        z.f = training_set->pairs[k]->out.f;
                         forward_propagate(nn,&q);
                         back_propagate(nn,&q,&z,1);
-                        q.f = ts->pairs[i]->in.f;
-                        z.f = ts->pairs[i]->out.f;
+                        q.f = training_set->pairs[i]->in.f;
+                        z.f = training_set->pairs[i]->out.f;
                         forward_propagate(nn,&q);
                         back_propagate(nn,&q,&z,1);
                     }
                 }
                 break;
-            case 9:
+
+            case 91:
+                cmd_code_str = strtok(NULL, " ");
+                if(cmd_code_str == NULL){ _say("no argument given"); continue; }
+                cmd_code = atoi(cmd_code_str);
+                error = 
+                    sum_error(
+                        training_set->pairs[cmd_code]->out.f,
+                        nn->out.states.f,
+                        nn->out.states.n);
+                _df(error);
+                break;
+
+            case 92:
+                cmd_code_str = strtok(NULL, " ");
+                if(cmd_code_str == NULL){ _say("no argument given"); continue; }
+                cmd_code = atoi(cmd_code_str);
+                error = 
+                    sum_error(
+                        ds->test_set->pairs[cmd_code]->out.f,
+                        nn->out.states.f,
+                        nn->out.states.n);
+                _df(error);
+                break;
+
+            case 93:
                 total_error=0;
-                for(i=0;i<1593;i++){
-                    q.f = ts->pairs[i]->in.f;
+                for(i=0;i<TEST_SET_SIZE;i++){
+                    q.f = ds->test_set->pairs[i]->in.f;
                     forward_propagate(nn,&q);
                     total_error += 
                         sum_error(
-                            ts->pairs[i]->out.f,
+                            ds->test_set->pairs[i]->out.f,
                             nn->out.states.f,
                             nn->out.states.n);
                 }
-                _df(total_error/1593);
+                _df(total_error/TEST_SET_SIZE);
                 break;
+
             default:
                 _say("unrecognized cmd_code");
                 dev_menu();
                 break;
+
         }
 
         for(i=0;i<256;i++){ buffer[i]=0; } // zero out the buffer
@@ -619,16 +780,20 @@ void dev_menu(void){
             "32    .....    show hidden weights\n"
             "33    .....    show output states\n"
             "34    .....    show output weights\n"
-            "41    .....    SVG  hidden states     ==> test.svg\n"
-            "42    .....    SVG  hidden weights    ==> test.svg\n"
-            "43    .....    SVG  output states     ==> test.svg\n"
-            "44    .....    SVG  output weights    ==> test.svg\n"
-            "5  x  .....    SVG  training input x  ==> test.svg\n"
-            "6  x  .....    show training output x ==> test.svg\n"
+            "41    .....    SVG  hidden states  ==> test.svg\n"
+            "42    .....    SVG  hidden weights ==> test.svg\n"
+            "43    .....    SVG  output states  ==> test.svg\n"
+            "44    .....    SVG  output weights ==> test.svg\n"
+            "51 x  .....    SVG  train input x  ==> test.svg\n"
+            "52 x  .....    SVG  test  input x  ==> test.svg\n"
+            "61 x  .....    show train output x ==> test.svg\n"
+            "62 x  .....    show test  output x ==> test.svg\n"
             "71 x  .....    fwd prop train pair x\n"
-            "72 x  .....    back prop train pair x\n"
+            "72 x  .....    fwd prop test  pair x\n"
             "8  x  .....    x iters auto training\n"
-            "9     .....    global error\n");
+            "91 x  .....    network error train pair x\n"
+            "92 x  .....    network error test  pair x\n"
+            "93    .....    total test error\n");
 
 }
 
