@@ -60,18 +60,18 @@ You can also check the overall global error of the network with command code
 will be high:
 
     % 93
-    total_error/TEST_SET_SIZE 1.137650
+    num_failures/TEST_SET_SIZE 1.000000
 
 By training for one iteration, we can bring the error down (by a lot):
 
-    % 8 1 
+    % 8 1
     % 93
-    total_error/TEST_SET_SIZE 0.123995
+    num_failures/TEST_SET_SIZE 0.316583
 
 Training 20 more iterations brings it further down:
 
     % 8 20
     % 93
-    total_error/TEST_SET_SIZE 0.071586
+    num_failures/TEST_SET_SIZE 0.130653
 
 
