@@ -212,6 +212,28 @@ float sum_error(float *targets, float *outputs, int num_outputs){
 
 //
 //
+float thresh(float x){
+
+    if(x > -0.5 && x < 0.5)
+        return 0;
+    else
+        return 1;
+
+}
+
+
+//
+//
+float sum_thresh_error(float *targets, float *outputs, int num_outputs){
+    float sum = 0.0f;
+    for(int i = 0; i<num_outputs; i++)
+        sum += thresh(targets[i]-outputs[i]);
+    return sum;
+}
+
+
+//
+//
 void show_states(nn_layer *layer){
     int i;
     for(i=0; i < layer->states.n; i++){
@@ -525,6 +547,7 @@ void dev_prompt(void){
     float ftemp;
     float total_error;
     float error;
+    float num_failures;
     FILE *s;
 
     farray q;
@@ -722,17 +745,18 @@ void dev_prompt(void){
                 break;
 
             case 93:
-                total_error=0;
+                num_failures=0;
                 for(i=0;i<TEST_SET_SIZE;i++){
                     q.f = ds->test_set->pairs[i]->in.f;
                     forward_propagate(nn,&q);
-                    total_error += 
-                        sum_error(
+                    num_failures += 
+                        (sum_thresh_error(
                             ds->test_set->pairs[i]->out.f,
                             nn->out.states.f,
-                            nn->out.states.n);
+                            nn->out.states.n)
+                        != 0);
                 }
-                _df(total_error/TEST_SET_SIZE);
+                _df(num_failures/TEST_SET_SIZE);
                 break;
 
             default:
